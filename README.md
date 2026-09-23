@@ -1,12 +1,6 @@
-# Task Management API
+# Task Manager API
 
-A simple REST API for managing tasks with persistence.
-
-## Requirements
-- Python 3.9+
-- FastAPI
-- Uvicorn
-- SQLite3 (standard library)
+A simple Task Management API built with FastAPI and SQLite.
 
 ## Installation
 
@@ -15,17 +9,14 @@ A simple REST API for managing tasks with persistence.
    pip install -r requirements.txt
    ```
 
-## Running the Application
-
-1. Start the server:
+2. Run the application:
    ```bash
    uvicorn src.main:app --reload
    ```
 
-## API Usage
+## Running Tests
 
-- `POST /tasks`: Create a new task (JSON: `{"title": "string", "description": "string", "status": "pending"|"completed"}`)
-- `GET /tasks`: List all tasks
-- `GET /tasks/{id}`: Get a specific task
-- `PUT /tasks/{id}`: Update a task
-- `DELETE /tasks/{id}`: Delete a task
+To run the test suite, use `pytest`:
+```bash
+pytest tests/
+```
