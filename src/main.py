@@ -5,7 +5,12 @@ from typing import List, Optional
 app = FastAPI()
 
 class Task(BaseModel):
-    id: int
+    id: Optional[int] = None
+    title: str
+    description: Optional[str] = None
+    completed: bool = False
+
+class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
     completed: bool = False
@@ -14,12 +19,12 @@ tasks = []
 task_id_counter = 1
 
 @app.post("/tasks", response_model=Task)
-def create_task(task: Task):
+def create_task(task: TaskCreate):
     global task_id_counter
-    task.id = task_id_counter
+    new_task = Task(id=task_id_counter, **task.model_dump())
     task_id_counter += 1
-    tasks.append(task)
-    return task
+    tasks.append(new_task)
+    return new_task
 
 @app.get("/tasks", response_model=List[Task])
 def get_tasks():

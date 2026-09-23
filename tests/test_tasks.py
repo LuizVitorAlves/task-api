@@ -5,7 +5,7 @@ from src.main import app
 client = TestClient(app)
 
 def test_create_task():
-    response = client.post("/tasks", json={"id": 0, "title": "Test Task", "description": "Description"})
+    response = client.post("/tasks", json={"title": "Test Task", "description": "Description"})
     assert response.status_code == 200
     data = response.json()
     assert data["title"] == "Test Task"
@@ -18,7 +18,7 @@ def test_get_tasks():
 
 def test_get_task():
     # First create
-    client.post("/tasks", json={"id": 0, "title": "Test Task", "description": "Description"})
+    client.post("/tasks", json={"title": "Test Task", "description": "Description"})
     
     response = client.get("/tasks/1")
     assert response.status_code == 200
