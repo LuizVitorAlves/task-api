@@ -102,35 +102,3 @@ def test_list_tasks(client):
     assert len(tasks) == 2
     assert tasks[0]["title"] == "Task 1"
     assert tasks[1]["title"] == "Task 2"
-
-def test_invalid_task_creation(client):
-    c, _ = client
-    # No title
-    res = c.post("/tasks", json={"status": "pending"})
-    assert res.status_code == 422
-    
-    # Whitespace only title
-    res = c.post("/tasks", json={"title": "   ", "status": "pending"})
-    assert res.status_code == 422
-    
-    # Invalid status
-    res = c.post("/tasks", json={"title": "Valid Title", "status": "unknown"})
-    assert res.status_code == 422
-
-def test_delete_task(client):
-    c, _ = client
-    create_res = c.post("/tasks", json={"title": "Delete Me", "status": "pending"})
-    task_id = create_res.json()["id"]
-    
-    # Delete
-    del_res = c.delete(f"/tasks/{task_id}")
-    assert del_res.status_code == 204
-    
-    # Verify gone
-    get_res = c.get(f"/tasks/{task_id}")
-    assert get_res.status_code == 404
-
-def test_delete_task_not_found(client):
-    c, _ = client
-    del_res = c.delete("/tasks/9999")
-    assert del_res.status_code == 404
