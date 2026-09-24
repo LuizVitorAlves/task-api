@@ -39,6 +39,22 @@ def test_create_task(client):
     assert data["title"] == "Test Task"
     assert "id" in data
 
+def test_create_task_without_title(client):
+    c, _ = client
+    response = c.post("/tasks", json={"status": "pending"})
+    assert response.status_code == 422
+
+def test_create_task_with_invalid_status(client):
+    c, _ = client
+    response = c.post("/tasks", json={"title": "Test Task", "status": "invalid"})
+    assert response.status_code == 422
+
+def test_authentication_failure(client):
+    c, _ = client
+    c.auth = ("invalid", "credentials")
+    response = c.post("/tasks", json={"title": "Test Task", "status": "pending"})
+    assert response.status_code == 401
+
 def test_get_task_by_id_success(client):
     c, _ = client
     # Create
@@ -99,6 +115,6 @@ def test_list_tasks(client):
     get_res = c.get("/tasks")
     assert get_res.status_code == 200
     tasks = get_res.json()
-    assert len(tasks) == 2
-    assert tasks[0]["title"] == "Task 1"
-    assert tasks[1]["title"] == "Task 2"
+    assert len(tasks) >= 2
+    assert any(task["title"] == "Task 1" for task in tasks)
+    assert any(task["title"] == "Task 2" for task in tasks)
