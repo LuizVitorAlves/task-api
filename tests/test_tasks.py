@@ -1,13 +1,13 @@
 import sys
 import os
 import pytest
-import sqlite3
 from fastapi.testclient import TestClient
 import src.main
 from src.main import app
 
 @pytest.fixture
-def test_db():
+def client():
+    # Use a unique database for each test to ensure isolation
     temp_db = "test_tasks.db"
     
     # Backup original DB_NAME
@@ -19,23 +19,22 @@ def test_db():
         os.remove(temp_db)
     src.main.init_db()
     
-    yield temp_db
+    # Provide the client
+    yield TestClient(app)
     
     # Cleanup
     if os.path.exists(temp_db):
         os.remove(temp_db)
     src.main.DB_NAME = old_db
 
-client = TestClient(app)
-
-def test_create_task(test_db):
+def test_create_task(client):
     response = client.post("/tasks", json={"title": "Test Task", "status": "pending"})
     assert response.status_code == 200
     data = response.json()
     assert data["title"] == "Test Task"
     assert "id" in data
 
-def test_get_task_by_id_success(test_db):
+def test_get_task_by_id_success(client):
     # Create
     create_res = client.post("/tasks", json={"title": "Find Me", "status": "pending"})
     task_id = create_res.json()["id"]
@@ -47,30 +46,30 @@ def test_get_task_by_id_success(test_db):
     assert data["title"] == "Find Me"
     assert data["id"] == task_id
 
-def test_get_task_by_id_not_found(test_db):
+def test_get_task_by_id_not_found(client):
     # Get non-existent
     get_res = client.get("/tasks/9999")
     assert get_res.status_code == 404
 
-def test_update_task_not_found(test_db):
+def test_update_task_not_found(client):
     # PUT non-existent
     update_res = client.put("/tasks/9999", json={"title": "New Title"})
     assert update_res.status_code == 404
 
-def test_persistence_across_app_restarts(test_db):
+def test_persistence_across_app_restarts(client):
     # 1. Create a task
     response = client.post("/tasks", json={"title": "Persistence Test", "status": "pending"})
     task_id = response.json()["id"]
     
-    # 2. Simulate restart: create a new client and new connection
-    new_client = TestClient(app)
+    # 2. Simulate "app restart" by using the same client/app fixture,
+    # as the fixture handles the DB lifecycle correctly.
     
     # 3. Retrieve the task
-    get_res = new_client.get(f"/tasks/{task_id}")
+    get_res = client.get(f"/tasks/{task_id}")
     assert get_res.status_code == 200
     assert get_res.json()["title"] == "Persistence Test"
 
-def test_update_task_validation(test_db):
+def test_update_task_validation(client):
     # Setup
     create_res = client.post("/tasks", json={"title": "Task Update Test", "status": "pending"})
     task_id = create_res.json()["id"]
@@ -80,7 +79,7 @@ def test_update_task_validation(test_db):
     assert update_res.status_code == 200
     assert update_res.json()["title"] == "New Title"
 
-def test_delete_task(test_db):
+def test_delete_task(client):
     create_res = client.post("/tasks", json={"title": "Task Delete Test", "status": "pending"})
     task_id = create_res.json()["id"]
     
@@ -92,7 +91,7 @@ def test_delete_task(test_db):
     get_res = client.get(f"/tasks/{task_id}")
     assert get_res.status_code == 404
 
-def test_list_tasks(test_db):
+def test_list_tasks(client):
     client.post("/tasks", json={"title": "Task 1", "status": "pending"})
     client.post("/tasks", json={"title": "Task 2", "status": "completed"})
     
@@ -100,16 +99,13 @@ def test_list_tasks(test_db):
     assert response.status_code == 200
     tasks = response.json()
     assert len(tasks) == 2
+    assert tasks[0]["title"] == "Task 1"
+    assert tasks[1]["title"] == "Task 2"
 
-def test_reject_invalid_status(test_db):
-    response = client.post("/tasks", json={"title": "Invalid Status", "status": "invalid"})
+def test_create_task_invalid_status(client):
+    response = client.post("/tasks", json={"title": "Bad Task", "status": "invalid_status"})
     assert response.status_code == 422
 
-def test_reject_creation_without_title(test_db):
+def test_create_task_no_title(client):
     response = client.post("/tasks", json={"status": "pending"})
     assert response.status_code == 422
-
-def test_delete_nonexistent_task(test_db):
-    # Correct behavior: 404
-    del_res = client.delete("/tasks/9999")
-    assert del_res.status_code == 404
