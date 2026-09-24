@@ -2,7 +2,7 @@ import sqlite3
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from enum import Enum
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from src.schemas import TaskUpdate, TaskStatus
 
 app = FastAPI()
@@ -71,9 +71,7 @@ def get_task(task_id: int):
 
 @app.put("/tasks/{task_id}", response_model=Task)
 def update_task(task_id: int, task_update: TaskUpdate):
-    # Validation: Pydantic handles type check, but we need to ensure title isn't null if provided
-    # If the user sends {"title": null}, Pydantic field is Optional, so it accepts None.
-    # We want to forbid setting title to None.
+    # Validation
     if task_update.title is not None and len(task_update.title.strip()) == 0:
         raise HTTPException(status_code=422, detail="Title cannot be empty")
     if "title" in task_update.model_dump(exclude_unset=True) and task_update.title is None:
@@ -103,10 +101,14 @@ def update_task(task_id: int, task_update: TaskUpdate):
     conn.close()
     return dict(updated_task)
 
-@app.delete("/tasks/{task_id}", status_code=204)
+@app.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
     conn = get_db()
-    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    deleted = cursor.rowcount > 0
     conn.commit()
     conn.close()
-    return None
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return Response(status_code=204)

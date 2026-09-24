@@ -62,12 +62,13 @@ def test_persistence_across_app_restarts(test_db):
     response = client.post("/tasks", json={"title": "Persistence Test", "status": "pending"})
     task_id = response.json()["id"]
     
-    # 2. Verify it is still in the DB
-    conn = sqlite3.connect(test_db)
-    task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    assert task is not None
-    assert task[1] == "Persistence Test"
-    conn.close()
+    # 2. Simulate restart: create a new client and new connection
+    new_client = TestClient(app)
+    
+    # 3. Retrieve the task
+    get_res = new_client.get(f"/tasks/{task_id}")
+    assert get_res.status_code == 200
+    assert get_res.json()["title"] == "Persistence Test"
 
 def test_update_task_validation(test_db):
     # Setup
@@ -90,3 +91,25 @@ def test_delete_task(test_db):
     # Verify deletion
     get_res = client.get(f"/tasks/{task_id}")
     assert get_res.status_code == 404
+
+def test_list_tasks(test_db):
+    client.post("/tasks", json={"title": "Task 1", "status": "pending"})
+    client.post("/tasks", json={"title": "Task 2", "status": "completed"})
+    
+    response = client.get("/tasks")
+    assert response.status_code == 200
+    tasks = response.json()
+    assert len(tasks) == 2
+
+def test_reject_invalid_status(test_db):
+    response = client.post("/tasks", json={"title": "Invalid Status", "status": "invalid"})
+    assert response.status_code == 422
+
+def test_reject_creation_without_title(test_db):
+    response = client.post("/tasks", json={"status": "pending"})
+    assert response.status_code == 422
+
+def test_delete_nonexistent_task(test_db):
+    # Correct behavior: 404
+    del_res = client.delete("/tasks/9999")
+    assert del_res.status_code == 404
