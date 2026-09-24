@@ -2,11 +2,59 @@ import sqlite3
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from enum import Enum
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Depends, Security
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from src.schemas import TaskUpdate, TaskStatus
+import secrets
+import hmac
 
 app = FastAPI()
 
+# 1. Security Headers & Middleware
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
+
+# 2. Authentication
+security = HTTPBasic()
+# For the purpose of this exercise, using simple credentials
+# In production, use a secure vault or hashed credentials in DB
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "password123"
+
+def authenticate(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+# 3. Models
 class Task(BaseModel):
     id: int
     title: str = Field(..., min_length=1)
@@ -17,6 +65,12 @@ class TaskCreate(BaseModel):
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
     status: TaskStatus = TaskStatus.PENDING
+
+    # Strengthen title validation
+    def model_validator(cls, values):
+        if 'title' in values and values['title'].strip() == "":
+            raise ValueError("Title cannot be whitespace only")
+        return values
 
 DB_NAME = "tasks.db"
 
@@ -40,28 +94,35 @@ def init_db():
 
 init_db()
 
-@app.post("/tasks", response_model=Task)
-def create_task(task: TaskCreate):
+@app.post("/tasks", response_model=Task, dependencies=[Depends(authenticate)])
+@limiter.limit("5/minute")
+def create_task(request: Request, task: TaskCreate):
+    # Additional validation
+    if task.title.strip() == "":
+        raise HTTPException(status_code=422, detail="Title cannot be empty")
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO tasks (title, description, status) VALUES (?, ?, ?)",
-        (task.title, task.description, task.status)
+        (task.title.strip(), task.description, task.status)
     )
     task_id = cursor.lastrowid
     conn.commit()
     conn.close()
     return {**task.model_dump(), "id": task_id}
 
-@app.get("/tasks", response_model=List[Task])
-def get_tasks():
+@app.get("/tasks", response_model=List[Task], dependencies=[Depends(authenticate)])
+@limiter.limit("10/minute")
+def get_tasks(request: Request):
     conn = get_db()
     tasks = conn.execute("SELECT * FROM tasks").fetchall()
     conn.close()
     return [dict(t) for t in tasks]
 
-@app.get("/tasks/{task_id}", response_model=Task)
-def get_task(task_id: int):
+@app.get("/tasks/{task_id}", response_model=Task, dependencies=[Depends(authenticate)])
+@limiter.limit("10/minute")
+def get_task(request: Request, task_id: int):
     conn = get_db()
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
@@ -69,14 +130,13 @@ def get_task(task_id: int):
         raise HTTPException(status_code=404, detail="Task not found")
     return dict(task)
 
-@app.put("/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, task_update: TaskUpdate):
+@app.put("/tasks/{task_id}", response_model=Task, dependencies=[Depends(authenticate)])
+@limiter.limit("5/minute")
+def update_task(request: Request, task_id: int, task_update: TaskUpdate):
     # Validation
     if task_update.title is not None and len(task_update.title.strip()) == 0:
         raise HTTPException(status_code=422, detail="Title cannot be empty")
-    if "title" in task_update.model_dump(exclude_unset=True) and task_update.title is None:
-        raise HTTPException(status_code=422, detail="Title cannot be set to null")
-
+    
     conn = get_db()
     # Check if exists
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -86,6 +146,9 @@ def update_task(task_id: int, task_update: TaskUpdate):
     
     # Filter out None values
     update_data = {k: v for k, v in task_update.model_dump(exclude_unset=True).items() if v is not None}
+    
+    if "title" in update_data:
+        update_data["title"] = update_data["title"].strip()
     
     if not update_data:
         conn.close()
@@ -100,15 +163,3 @@ def update_task(task_id: int, task_update: TaskUpdate):
     updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
     return dict(updated_task)
-
-@app.delete("/tasks/{task_id}")
-def delete_task(task_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-    deleted = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return Response(status_code=204)

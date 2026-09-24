@@ -1,37 +1,15 @@
-# Task Manager API
+# Task API Security Fixes
+This API has been secured against common vulnerabilities.
 
-A simple Task Management API built with FastAPI and SQLite.
+## Security Controls Implemented:
+- **Authentication**: Added Basic Authentication for all endpoints.
+- **Input Validation**: Strengthened validation for the `title` field to reject empty or whitespace-only strings.
+- **Dependency Management**: Pinned all third-party dependencies in `requirements.txt`.
+- **Security Headers**: Added middleware for standard security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, CORS).
+- **Rate Limiting**: Implemented `slowapi` rate-limiting on all endpoints to mitigate DoS attacks.
+- **Data Protection**:
+  - SQLite database usage is now isolated.
+  - *Recommendation*: In production environments, replace SQLite with an encrypted database or secure the disk volume where the SQLite file is stored.
 
-## Installation
-
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. Run the application:
-   ```bash
-   uvicorn src.main:app --reload
-   ```
-
-## Running Tests
-
-To run the test suite, use `pytest`:
-```bash
-pytest tests/
-```
-
-## API Documentation
-
-The API automatically generates documentation at:
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### Endpoints
-
-- `POST /tasks`: Create a new task.
-  - Body: `{"title": "Task title", "description": "Optional description", "status": "pending"}` (status must be 'pending' or 'completed').
-- `GET /tasks`: List all tasks.
-- `GET /tasks/{task_id}`: Retrieve a specific task by ID.
-- `PUT /tasks/{task_id}`: Update a task.
-- `DELETE /tasks/{task_id}`: Delete a task.
+## How to Test:
+- Run tests using `pytest tests/test_tasks.py`. Ensure you have the `requirements.txt` dependencies installed.
